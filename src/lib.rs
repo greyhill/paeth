@@ -10,6 +10,11 @@
 extern crate nalgebra as na;
 use na::{BaseFloat, Rotation2, Matrix2, Rotation3, Matrix3, inverse, ApproxEq};
 
+#[cfg(feature = "opencl")]
+mod opencl;
+#[cfg(feature = "opencl")]
+pub use opencl::*;
+
 /// Two-dimensional Paeth rotation
 ///
 /// Decomposes a given rotation into an Y-shear followed by and X-shear:
