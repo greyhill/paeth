@@ -5,38 +5,39 @@
 ///!
 ///! This crate implements Paeth decompositions for the 2d and 3d rotation
 ///! objects in the `nalgebra` package.
+///!
+///! To be clear: this project does not implement the more popular three-shear
+///! version of the algorithm.
 
 #[macro_use]
 extern crate nalgebra as na;
 use na::{BaseFloat, Rotation2, Matrix2, Rotation3, Matrix3, inverse, ApproxEq};
 
-#[cfg(feature = "opencl")]
 mod opencl;
-#[cfg(feature = "opencl")]
 pub use opencl::*;
 
 /// Two-dimensional Paeth rotation
 ///
 /// Decomposes a given rotation into an Y-shear followed by and X-shear:
-/// `R = X*Y`.  The parameters of the shears are stored in a compact
+/// `R = Y*X`.  The parameters of the shears are stored in a compact
 /// form in the `PaethRotation2` struct:
 ///
 /// ```ignore
-/// X = [ gamma eta
+/// X = [  xx   xy  
 ///         0    1   ]
 ///
 /// Y = [ 0      1
-///       alpha beta ]
+///       yx    yy   ]
 /// ```
 ///
 /// The individual shear matrices can be computed with `shear_x()` and
 /// `shear_y().
 pub struct PaethRotation2<N>
 where N: BaseFloat + Clone {
-    pub alpha: N,
-    pub beta: N,
-    pub gamma: N,
-    pub eta: N,
+    pub xx: N,
+    pub xy: N,
+    pub yx: N,
+    pub yy: N,
 }
 
 impl<N> PaethRotation2<N>
@@ -47,10 +48,10 @@ where N: BaseFloat + Clone {
 
     pub fn new_from_matrix(m: &Matrix2<N>) -> Self {
         PaethRotation2{
-            alpha: m.m21,
-            beta: m.m22,
-            gamma: m.m11 - m.m12*m.m21/m.m22,
-            eta: m.m12 / m.m22
+            xx: m.m11,
+            xy: m.m12,
+            yx: m.m21 / m.m11,
+            yy: m.m22 - m.m21*m.m12/m.m11,
         }
     }
 
@@ -58,15 +59,15 @@ where N: BaseFloat + Clone {
         Matrix2{
             m11: N::one(),
             m12: N::zero(),
-            m21: self.alpha,
-            m22: self.beta,
+            m21: self.yx,
+            m22: self.yy,
         }
     }
 
     pub fn shear_x(self: &Self) -> Matrix2<N> {
         Matrix2{
-            m11: self.gamma,
-            m12: self.eta,
+            m11: self.xx,
+            m12: self.xy,
             m21: N::zero(),
             m22: N::one(),
         }
@@ -76,7 +77,7 @@ where N: BaseFloat + Clone {
 /// Three-dimensional Paeth rotation
 ///
 /// Decomposes a given rotation into a compositon of three one-dimensional
-/// shears: `R = X*Y*Z`.  The parameters for the shears are stored in a 
+/// shears: `R = Z*Y*X`.  The parameters for the shears are stored in a 
 /// compact form in the `PathRotation3` struct:
 ///
 /// ```ignore
@@ -169,23 +170,23 @@ where N: BaseFloat + Clone + ApproxEq<N> {
         // but for the sake of simplicity here, we successively
         // "peel off" dimensions of the rotation 
 
-        let zx = m.m31;
-        let zy = m.m32;
-        let zz = m.m33;
+        let xx = m.m11;
+        let xy = m.m12;
+        let xz = m.m13;
 
-        let shear_z = shear_z_from_entries(zx.clone(), zy.clone(), zz.clone());
-        let m_less_z = *m * inverse(&shear_z).expect("shear_z was not invertible?");
+        let shear_x = shear_x_from_entries(xx.clone(), xy.clone(), xz.clone());
+        let m_less_x = *m * inverse(&shear_x).expect("shear_x was not invertible?");
         
-        let yx = m_less_z.m21;
-        let yy = m_less_z.m22;
-        let yz = m_less_z.m23;
+        let yx = m_less_x.m21;
+        let yy = m_less_x.m22;
+        let yz = m_less_x.m23;
 
         let shear_y = shear_y_from_entries(yx.clone(), yy.clone(), yz.clone());
-        let m_less_yz = m_less_z * inverse(&shear_y).expect("shear_y not invertible?");
+        let m_less_yx = m_less_x * inverse(&shear_y).expect("shear_y not invertible?");
 
-        let xx = m_less_yz.m11;
-        let xy = m_less_yz.m12;
-        let xz = m_less_yz.m13;
+        let zx = m_less_yx.m31;
+        let zy = m_less_yx.m32;
+        let zz = m_less_yx.m33;
 
         PaethRotation3{
             xx: xx,
@@ -224,7 +225,7 @@ fn test_rot2() {
     let p = PaethRotation2::new(&r);
     let px = p.shear_x();
     let py = p.shear_y();
-    let rr = px * py;
+    let rr = py * px;
 
     assert_approx_eq!(rr.m11, rm.m11);
     assert_approx_eq!(rr.m12, rm.m12);
@@ -242,7 +243,7 @@ fn test_rot3() {
     let px = p.shear_x();
     let py = p.shear_y();
     let pz = p.shear_z();
-    let rr = px * py * pz;
+    let rr = pz * py * px;
 
     assert_approx_eq!(rr.m11, rm.m11);
     assert_approx_eq!(rr.m12, rm.m12);
